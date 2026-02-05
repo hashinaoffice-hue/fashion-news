@@ -6,34 +6,99 @@ from email.utils import parsedate_to_datetime
 from deep_translator import GoogleTranslator
 import concurrent.futures
 
-# [모바일 최적화 1] 사이드바를 처음에 숨겨서 좁은 화면을 넓게 쓰게 함
+# -------------------------------------------------------------------
+# 1. 페이지 설정
+# -------------------------------------------------------------------
 st.set_page_config(
-    page_title="Fashion News", 
-    page_icon="🧥",
+    page_title="ODM",       
+    page_icon="logo.png",   
     layout="wide",
     initial_sidebar_state="collapsed" 
 )
 
-# --- CSS로 모바일에서 더 앱처럼 보이게 꾸미기 ---
+# -------------------------------------------------------------------
+# [메모리] 세션 상태 초기화
+# -------------------------------------------------------------------
+if 'scrapped_news' not in st.session_state:
+    st.session_state.scrapped_news = []
+
+if 'current_news' not in st.session_state:
+    st.session_state.current_news = []
+
+# -------------------------------------------------------------------
+# [디자인] CSS 스타일 (#ca0000 테마 + 모바일 최적화)
+# -------------------------------------------------------------------
 st.markdown("""
     <style>
-    /* 폰트 크기 조정 및 여백 최적화 */
+    .block-container {
+        padding-top: 4rem !important;
+        padding-bottom: 2rem !important;
+    }
+    .stApp {
+        background-color: #ffffff;
+        color: #000000;
+        font-family: sans-serif;
+    }
+    /* 사이드바 */
+    section[data-testid="stSidebar"] {
+        background-color: #ca0000;
+    }
+    section[data-testid="stSidebar"] * {
+        color: #ffffff !important;
+    }
+    button[kind="header"] {
+        color: #000000 !important;
+    }
+
+    /* 타이틀 */
+    h1 {
+        font-size: 1.6rem !important;
+        font-weight: 800 !important;
+        color: #ca0000 !important;
+        margin-bottom: 0rem !important;
+    }
+    
+    /* 뉴스 카드 */
+    div[data-testid="stContainer"] {
+        background-color: #ffffff;
+        border: 1px solid #e0e0e0;
+        border-radius: 8px;
+        padding: 15px;
+        margin-bottom: 10px;
+        box-shadow: 0 2px 5px rgba(0,0,0,0.05);
+    }
+    h3 {
+        font-size: 1.1rem !important;
+        font-weight: 700 !important;
+        color: #000000 !important;
+        margin-bottom: 0.3rem !important;
+    }
+    .stCaption {
+        font-size: 0.8rem !important;
+        color: #666666 !important;
+    }
+    
+    /* 메인 버튼 (Red) */
     .stButton>button {
         width: 100%;
-        border-radius: 12px;
+        border-radius: 8px;
         height: 3em;
+        background-color: #ca0000 !important;
+        color: #ffffff !important;
+        border: none;
         font-weight: bold;
+        font-size: 0.9rem !important;
     }
-    /* 뉴스 카드 디자인 */
-    div[data-testid="stContainer"] {
-        background-color: #f9f9f9;
-        padding: 15px;
-        border-radius: 15px;
-        margin-bottom: 10px;
+    .stButton>button:hover {
+        background-color: #a00000 !important;
     }
-    /* 모바일에서 링크 버튼 잘 보이게 */
+    
+    /* 링크 */
     a {
         text-decoration: none;
+        color: #ca0000 !important;
+        font-weight: 600;
+        font-size: 0.85rem !important;
     }
     </style>
     """, unsafe_allow_html=True)
@@ -42,24 +107,29 @@ st.markdown("""
 # 사이트 목록
 # -------------------------------------------------------------------
 site_list = {
-    "Hypebeast KR (하입비스트)": "https://news.google.com/rss/search?q=site:hypebeast.kr/fashion&hl=ko&gl=KR&ceid=KR:ko",
-    "Dazed Digital (데이즈드)": "https://news.google.com/rss/search?q=site:dazeddigital.com/fashion&hl=en-US&gl=US&ceid=US:en",
-    "Vogue US (보그 미국)": "https://news.google.com/rss/search?q=site:vogue.com/fashion&hl=en-US&gl=US&ceid=US:en",
-    "Highsnobiety (하이스노바이어티)": "https://news.google.com/rss/search?q=site:highsnobiety.com&hl=en-US&gl=US&ceid=US:en"
+    "Hypebeast KR": "https://news.google.com/rss/search?q=site:hypebeast.kr/fashion&hl=ko&gl=KR&ceid=KR:ko",
+    "Dazed Digital": "https://news.google.com/rss/search?q=site:dazeddigital.com/fashion&hl=en-US&gl=US&ceid=US:en",
+    "Vogue US": "https://news.google.com/rss/search?q=site:vogue.com/fashion&hl=en-US&gl=US&ceid=US:en",
+    "Highsnobiety": "https://news.google.com/rss/search?q=site:highsnobiety.com&hl=en-US&gl=US&ceid=US:en"
 }
 
 # -------------------------------------------------------------------
-# 사이드바 (설정)
+# 사이드바
 # -------------------------------------------------------------------
 with st.sidebar:
-    st.header("⚙️ 설정 메뉴")
-    selected_site_name = st.radio("채널 선택", list(site_list.keys()))
+    st.header("ODM MENU")
+    
+    menu = st.radio("이동", ["실시간 뉴스", "나의 스크랩"])
     st.write("---")
-    enable_translation = st.toggle("🇰🇷 자동 번역", value=True)
-    st.write("---")
-    limit_option = st.slider("기사 개수", 10, 50, 20)
-    days_option = st.slider("기간 (일)", 1, 30, 7)
-    st.info("👆 메뉴를 닫으면 화면이 넓어집니다.")
+
+    if menu == "실시간 뉴스":
+        st.subheader("뉴스 필터")
+        selected_site_name = st.radio("채널 선택", list(site_list.keys()))
+        enable_translation = st.toggle("한국어 번역", value=True)
+        limit_option = st.slider("기사 개수", 10, 50, 20)
+        days_option = st.slider("기간 (일)", 1, 30, 7)
+    
+    st.caption("닫으면 화면이 넓어집니다.")
 
 # -------------------------------------------------------------------
 # 함수
@@ -71,7 +141,6 @@ def process_single_news(news_item):
     
     if enable_translation:
         try:
-            # 한글이 포함되지 않은 경우에만 번역
             if not any('\u3131' <= char <= '\u3163' or '\uac00' <= char <= '\ud7a3' for char in title):
                 translator = GoogleTranslator(source='auto', target='ko')
                 translated = translator.translate(title)
@@ -82,82 +151,125 @@ def process_single_news(news_item):
     news_item['title'] = title
     return news_item
 
-# -------------------------------------------------------------------
-# 메인 화면
-# -------------------------------------------------------------------
-# [모바일 최적화 2] 제목을 간결하게
-st.title(f"📱 {selected_site_name.split('(')[0]}")
-st.caption("왼쪽 상단 화살표(>)를 눌러 설정을 변경하세요.")
+def add_to_scrap(item):
+    if item not in st.session_state.scrapped_news:
+        st.session_state.scrapped_news.append(item)
+        # [수정됨] 이모지 아이콘 제거, 텍스트만 출력
+        st.toast(f"저장 완료: {item['title'][:10]}...")
+    else:
+        # [수정됨] 이모지 제거
+        st.toast("이미 저장된 기사입니다.")
 
-# [모바일 최적화 3] 엄지손가락으로 누르기 쉬운 큰 버튼
-if st.button("뉴스 새로고침 🔄", type="primary"):
-    status_area = st.empty()
-    status_area.info('뉴스를 불러오는 중...')
-    
-    try:
-        rss_url = site_list[selected_site_name]
-        headers = {'User-Agent': 'Mozilla/5.0'}
-        response = requests.get(rss_url, headers=headers)
-        soup = BeautifulSoup(response.text, 'html.parser')
-        items = soup.find_all('item')
+def remove_from_scrap(item):
+    st.session_state.scrapped_news.remove(item)
+    st.rerun()
+
+# -------------------------------------------------------------------
+# 메인 화면 로직
+# -------------------------------------------------------------------
+
+# 1. 실시간 뉴스 화면
+if menu == "실시간 뉴스":
+    st.title(selected_site_name)
+
+    if st.button("뉴스 새로고침", type="primary"):
+        status_area = st.empty()
+        status_area.caption('데이터 로딩 중...')
         
-        raw_news_list = []
-        for item in items:
-            title_text = item.find('title').text
-            if "Page " in title_text or "Category" in title_text: continue
-
-            date_tag = item.find('pubdate')
-            article_date_obj = datetime.now()
-            display_date = ""
-            is_recent = False
+        try:
+            rss_url = site_list[selected_site_name]
+            headers = {'User-Agent': 'Mozilla/5.0'}
+            response = requests.get(rss_url, headers=headers)
+            soup = BeautifulSoup(response.text, 'html.parser')
+            items = soup.find_all('item')
             
-            if date_tag:
-                try:
-                    article_date_obj = parsedate_to_datetime(date_tag.text)
-                    now = datetime.now(article_date_obj.tzinfo)
-                    if (now - article_date_obj).days <= days_option:
-                        is_recent = True
-                        # 모바일에서는 날짜를 짧게 표시 (2024-02-14)
-                        display_date = article_date_obj.strftime("%Y-%m-%d")
-                except:
-                    is_recent = True 
-            else:
-                is_recent = True
+            raw_news_list = []
+            for item in items:
+                title_text = item.find('title').text
+                if "Page " in title_text or "Category" in title_text: continue
 
-            if is_recent:
-                if item.find('link').next_sibling:
-                    link = item.find('link').next_sibling.strip()
+                date_tag = item.find('pubdate')
+                article_date_obj = datetime.now()
+                display_date = ""
+                is_recent = False
+                
+                if date_tag:
+                    try:
+                        article_date_obj = parsedate_to_datetime(date_tag.text)
+                        now = datetime.now(article_date_obj.tzinfo)
+                        if (now - article_date_obj).days <= days_option:
+                            is_recent = True
+                            display_date = article_date_obj.strftime("%Y-%m-%d")
+                    except:
+                        is_recent = True 
                 else:
-                    link = item.find('link').text
-                if "/page/" in link: continue
+                    is_recent = True
 
-                raw_news_list.append({
-                    'title': title_text,
-                    'link': link,
-                    'date_str': display_date,
-                    'real_date': article_date_obj 
-                })
+                if is_recent:
+                    if item.find('link').next_sibling:
+                        link = item.find('link').next_sibling.strip()
+                    else:
+                        link = item.find('link').text
+                    if "/page/" in link: continue
 
-        raw_news_list.sort(key=lambda x: x['real_date'], reverse=True)
-        target_news = raw_news_list[:limit_option]
+                    raw_news_list.append({
+                        'title': title_text,
+                        'link': link,
+                        'date_str': display_date,
+                        'real_date': article_date_obj 
+                    })
 
-        if target_news:
-            final_news_list = []
-            with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
-                results = executor.map(process_single_news, target_news)
-                for result in results:
-                    final_news_list.append(result)
-            
-            status_area.empty() # 로딩 문구 삭제
-            
-            # [모바일 최적화 4] 모바일은 1열로 보는 게 편하므로 컬럼 제거
-            for news in final_news_list:
-                with st.container(border=True):
-                    st.subheader(news['title'])
-                    st.caption(f"📅 {news['date_str']}")
-                    st.link_button("기사 읽기 👉", news['link'], use_container_width=True)
-        else:
-            status_area.warning("새로운 소식이 없습니다.")
-            
-    except Exception as e:
-        st.error(f"에러: {e}")
+            raw_news_list.sort(key=lambda x: x['real_date'], reverse=True)
+            target_news = raw_news_list[:limit_option]
+
+            if target_news:
+                final_news_list = []
+                with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+                    results = executor.map(process_single_news, target_news)
+                    for result in results:
+                        final_news_list.append(result)
+                
+                st.session_state.current_news = final_news_list
+                status_area.empty()
+            else:
+                status_area.warning("새로운 소식이 없습니다.")
+                st.session_state.current_news = []
+                
+        except Exception as e:
+            st.error(f"오류: {e}")
+
+    # 목록 표시
+    if st.session_state.current_news:
+        for i, news in enumerate(st.session_state.current_news):
+            with st.container(border=True):
+                st.subheader(news['title'])
+                st.caption(f"{news['date_str']}")
+                
+                col1, col2 = st.columns([1, 1])
+                with col1:
+                    st.link_button("기사 읽기", news['link'], use_container_width=True)
+                with col2:
+                    # [수정됨] 버튼에서 '+' 기호도 제거하여 깔끔하게 '스크랩'만 표시
+                    if st.button("스크랩", key=f"scrap_{i}"):
+                        add_to_scrap(news)
+
+# 2. 나의 스크랩 화면
+elif menu == "나의 스크랩":
+    st.title("나의 스크랩")
+    st.caption("저장한 기사를 확인하세요. (브라우저를 닫으면 초기화됩니다)")
+    
+    if st.session_state.scrapped_news:
+        for i, news in enumerate(st.session_state.scrapped_news):
+            with st.container(border=True):
+                st.subheader(news['title'])
+                st.caption(f"저장일: {news['date_str']}")
+                
+                col1, col2 = st.columns([1, 1])
+                with col1:
+                    st.link_button("기사 읽기", news['link'], use_container_width=True)
+                with col2:
+                    # [수정됨] 휴지통 이모지 제거 -> '삭제' 텍스트만 표시
+                    if st.button("삭제", key=f"del_{i}"):
+                        remove_from_scrap(news)
+    else:
+        st.info("저장된 기사가 없습니다.")
